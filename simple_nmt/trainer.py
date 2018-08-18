@@ -14,10 +14,12 @@ def get_loss(y, y_hat, criterion, do_backward = True):
     batch_size = y.size(0)
 
     loss = criterion(y_hat.contiguous().view(-1, y_hat.size(-1)), y.contiguous().view(-1))
+    ##### y_hat.size = (bs*l, |V|) ,   y.contiguous().view(-1) => (bs*l)
+   
     if do_backward:
         loss.div(batch_size).backward()
 
-    return loss
+    return loss  ##### 스칼라 
 
 def train_epoch(model, criterion, train_iter, valid_iter, config, start_epoch = 1, others_to_save = None):
     current_lr = config.lr
@@ -93,6 +95,8 @@ def train_epoch(model, criterion, train_iter, valid_iter, config, start_epoch = 
 
             # In orther to avoid gradient exploding, we apply gradient clipping.
             torch_utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+            ##### timestep이 다를 수록 gradient가 쌓인다.
+            
             # Take a step of gradient descent.
             optimizer.step()
 
