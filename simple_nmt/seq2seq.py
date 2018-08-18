@@ -16,14 +16,14 @@ class Attention(nn.Module):
         self.softmax = nn.Softmax(dim = -1)
 
     def forward(self, h_src, h_t_tgt, mask = None):
-        # |h_src| = (batch_size, length, hidden_size)
+        # |h_src| = (batch_size, length, hidden_size)   ##### H_src
         # |h_t_tgt| = (batch_size, 1, hidden_size)
         # |mask| = (batch_size, length)
 
-        query = self.linear(h_t_tgt.squeeze(1)).unsqueeze(-1)
+        query = self.linear(h_t_tgt.squeeze(1)).unsqueeze(-1) ##### (bs, hs) -> (bs, hs) -> (bs, hs, 1)
         # |query| = (batch_size, hidden_size, 1)
 
-        weight = torch.bmm(h_src, query).squeeze(-1)
+        weight = torch.bmm(h_src, query).squeeze(-1) ##### (bs, l, *hs) * (bs, *hs, 1) => (bs, l, 1) => (bs, 1) *squeeze
         # |weight| = (batch_size, length)
         if mask is not None:
             # Set each weight as -inf, if the mask value equals to 1.
@@ -32,7 +32,7 @@ class Attention(nn.Module):
             weight.masked_fill_(mask, -float('inf'))
         weight = self.softmax(weight)
 
-        context_vector = torch.bmm(weight.unsqueeze(1), h_src)
+        context_vector = torch.bmm(weight.unsqueeze(1), h_src) ##### (bs, l) => (bs, 1, l) /// (bs, l, hs)
         # |context_vector| = (batch_size, 1, hidden_size)
 
         return context_vector
@@ -52,7 +52,7 @@ class Encoder(nn.Module):
         if isinstance(emb, tuple):
             x, lengths = emb
             x = pack(x, lengths.tolist(), batch_first = True)
-
+ 
             # Below is how pack_padded_sequence works.
             # As you can see, PackedSequence object has information about mini-batch-wise information, not time-step-wise information.
             # 
@@ -63,15 +63,17 @@ class Encoder(nn.Module):
             #     [ 3,  4,  0]])
             # torch.nn.utils.rnn.pack_padded_sequence(b, batch_first=True, lengths=[3,2]
             # >>>>PackedSequence(data=tensor([ 1,  3,  2,  4,  3]), batch_sizes=tensor([ 2,  2,  1]))
+            ###### 타임 스텝별로 차원을 설명함
+
         else:
             x = emb
         
         y, h = self.rnn(x)
-        # |y| = (batch_size, length, hidden_size)
-        # |h[0]| = (num_layers * 2, batch_size, hidden_size / 2)
+        # |y| = (batch_size, length, hidden_size)   ###### Hsrc
+        # |h[0]| = (num_layers * 2, batch_size, hidden_size / 2)   
 
         if isinstance(emb, tuple):
-            y, _ = unpack(y, batch_first = True)
+            y, _ = unpack(y, batch_first = True)  ##### packing했으면 다시 풀어줘야 한다.
 
         return y, h
 
@@ -82,6 +84,7 @@ class Decoder(nn.Module):
 
         # Be aware of value of 'batch_first' parameter and 'bidirectional' parameter.
         self.rnn = nn.LSTM(word_vec_dim + hidden_size, hidden_size, num_layers = n_layers, dropout = dropout_p, bidirectional = False, batch_first = True)
+        ##### 예측하는 과정인 만큼 bi 불가!
 
     def forward(self, emb_t, h_t_1_tilde, h_t_1):
         # |emb_t| = (batch_size, 1, word_vec_dim)
@@ -95,12 +98,13 @@ class Decoder(nn.Module):
             h_t_1_tilde = emb_t.new(batch_size, 1, hidden_size).zero_()
 
         # Input feeding trick.
-        x = torch.cat([emb_t, h_t_1_tilde], dim = -1)
+        x = torch.cat([emb_t, h_t_1_tilde], dim = -1)   ##### word_vec_dim + hidden_size ??????????
 
         # Unlike encoder, decoder must take an input for sequentially.
         y, h = self.rnn(x, h_t_1)
 
         return y, h
+        ##### 타임스텝은 입력한 만큼 타임스텝을 인식한다. 현재 코드는 하나의 타임스텝만 구현한 것. Seq2Seq이 불러야 
 
 class Generator(nn.Module):
     
@@ -142,7 +146,7 @@ class Seq2Seq(nn.Module):
         self.tanh = nn.Tanh()
         self.generator = Generator(hidden_size, output_size)
 
-    def generate_mask(self, x, length):
+    def generate_mask(self, x, length):  ##### (배치별로) 뒤에 비어있는 애들은 1로 채워준다. attention weight를 적용하지 않게 하기 
         mask = []
 
         max_length = max(length)
@@ -160,7 +164,7 @@ class Seq2Seq(nn.Module):
 
         return mask
 
-    def merge_encoder_hiddens(self, encoder_hiddens):
+    def merge_encoder_hiddens(self, encoder_hiddens):  ##### 반복문은 지양해라... 설명을 위한 것
         new_hiddens = []
         new_cells = []
 
@@ -175,17 +179,18 @@ class Seq2Seq(nn.Module):
 
         new_hiddens, new_cells = torch.stack(new_hiddens), torch.stack(new_cells)
 
-        return (new_hiddens, new_cells)
+        return (new_hiddens, new_cells) ##### 각각 (n_layers, bs, hs)
 
     def forward(self, src, tgt):
-        batch_size = tgt.size(0)
+        batch_size = tgt.size(0)  ##### |Src| = (bs, length_src) ##### 우리는 |Vsrc| 필요 없다. 인덱스로 해결, onehot대신
+                                   ##### |Tgt| = (bs, length_tgt)         
 
         mask = None
         x_length = None
         if isinstance(src, tuple):
             x, x_length = src
             # Based on the length information, gererate mask to prevent that shorter sample has wasted attention.
-            mask = self.generate_mask(x, x_length)
+            mask = self.generate_mask(x, x_length)  
             # |mask| = (batch_size, length)
         else:
             x = src
@@ -204,7 +209,7 @@ class Seq2Seq(nn.Module):
 
         # Merge bidirectional to uni-directional
         # We need to convert size from (n_layers * 2, batch_size, hidden_size / 2) to (n_layers, batch_size, hidden_size).
-        # Thus, the converting operation will not working with just 'view' method.
+        # Thus, the converting operation will not working with just 'view' method. ##### numpy의 reshape처럼.
         h_0_tgt, c_0_tgt = h_0_tgt
         h_0_tgt = h_0_tgt.transpose(0, 1).contiguous().view(batch_size, -1, self.hidden_size).transpose(0, 1).contiguous()
         c_0_tgt = c_0_tgt.transpose(0, 1).contiguous().view(batch_size, -1, self.hidden_size).transpose(0, 1).contiguous()
@@ -221,7 +226,7 @@ class Seq2Seq(nn.Module):
         h_tilde = []
 
         h_t_tilde = None
-        decoder_hidden = h_0_tgt
+        decoder_hidden = h_0_tgt ##### autogressive 이슈를 teacher forcing으로 
         # Run decoder until the end of the time-step.
         for t in range(tgt.size(1)):
             # Teacher Forcing: take each input from training set, not from the last time-step's output.
