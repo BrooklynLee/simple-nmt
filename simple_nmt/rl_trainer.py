@@ -41,11 +41,11 @@ def get_reward(y, y_hat, n_gram = 6):
                 break
 
         # for nltk.bleu & nltk.gleu
-        scores += [score_func([ref], hyp, max_len = n_gram) * 100.]
+        scores += [score_func([ref], hyp, max_len = n_gram) * 100.] ## 6개로 n_gram 값을 주었다. BPE까지 하면 더 잛게 쪼개지기 때문
 
         # for utils.score_sentence
         #scores += [score_func(ref, hyp, 4, smooth = 1)[-1] * 100.]
-    scores = torch.FloatTensor(scores).to(y.device)
+    scores = torch.FloatTensor(scores).to(y.device) # Score가 있는 Float 텐서를 y가 있던 디바이스로 보내라.
     # |scores| = (batch_size)
 
     return scores
@@ -113,8 +113,8 @@ def train_epoch(model, criterion, train_iter, valid_iter, config, start_epoch = 
             optimizer.zero_grad()
 
             current_batch_word_cnt = torch.sum(batch.tgt[1])
-            x = batch.src
-            y = batch.tgt[0][:, 1:]
+            x = batch.src  
+            y = batch.tgt[0][:, 1:]  # 정답, 앞의 BOS를 뺀다. - 샘플링으로 진행하기 떄문?
             batch_size = y.size(0)
             # |x| = (batch_size, length)
             # |y| = (batch_size, length)
@@ -122,9 +122,9 @@ def train_epoch(model, criterion, train_iter, valid_iter, config, start_epoch = 
             # Take sampling process because set False for is_greedy.
             y_hat, indice = model.search(x, is_greedy = False, max_length = config.max_length)
             # Based on the result of sampling, get reward.
-            q_actor = get_reward(y, indice, n_gram = config.rl_n_gram)
-            # |y_hat| = (batch_size, length, output_size)
-            # |indice| = (batch_size, length)
+            _a_actor = get_reward(y, indice, n_gram = config.rl_n_gram)
+            # |y_hat| = (batch_size, length, output_size) ## 샘플링하기 전의 Softmax 값
+            # |indice| = (batch_size, length) ## Long Tensor - 샘플링을 통해 만들어지다..?
             # |q_actor| = (batch_size)
 
             # Take samples as many as n_samples, and get average rewards for them.
